@@ -6,10 +6,8 @@ from dotenv import load_dotenv
 from hl import LIMIT_GTC, TESTNET, Account, Api
 from hl.types import is_error_status, is_filled_status, is_resting_status
 
-# Load environment variables
 load_dotenv()
 
-# Regex parser for commands
 class CommandParser:
     BUY_RE = re.compile(
         r"buy\s+(?P<qty>[0-9]+(?:\.[0-9]+)?)\s+(?P<symbol>\w+)(?:\s+at\s+(?P<price>[0-9]+(?:\.[0-9]+)?|market))?",
@@ -35,27 +33,22 @@ class CommandParser:
                 return cmd_type, symbol, qty, price
         return None, None, None, None
 
-
 async def get_market_data(api, symbol):
     mids_result = await api.info.all_mids()
     if mids_result.is_err():
         print(f"[MarketData] Error getting prices: {mids_result.unwrap_err()}")
         return
-
     mids = mids_result.unwrap()
     price = Decimal(mids.get(symbol, 0))
     print(f"[MarketData] {symbol} mid price: {price}")
-
 
 async def show_portfolio(api):
     result = await api.info.user_state()
     if result.is_err():
         print("[Portfolio] Error fetching portfolio")
         return
-
     data = result.unwrap()
     positions = data.get("assetPositions", [])
-
     print("\n--- Portfolio ---")
     if not positions:
         print("No open positions")
@@ -70,11 +63,8 @@ async def show_portfolio(api):
                 print(f"{coin}: {size} units @ entry ${entry} | PnL: ${unrealized_pnl}")
     print("------------------\n")
 
-
 async def show_balances(api):
     print("\n=== Account Balances ===")
-
-    # Perpetual balances
     perp_result = await api.info.user_state()
     if perp_result.is_ok():
         perp = perp_result.unwrap()
@@ -86,7 +76,6 @@ async def show_balances(api):
     else:
         print(f"[Error] Failed to get perpetual balance: {perp_result.unwrap_err()}")
 
-    # Spot balances
     spot_result = await api.info.spot_user_state()
     if spot_result.is_ok():
         spot = spot_result.unwrap()
@@ -94,7 +83,6 @@ async def show_balances(api):
         total_usd_value = Decimal("0")
         mids_result = await api.info.all_mids()
         mids = mids_result.unwrap() if mids_result.is_ok() else {}
-
         balances = spot.get("balances", [])
         if balances:
             for balance in balances:
@@ -102,7 +90,6 @@ async def show_balances(api):
                 total = Decimal(balance.get("total", "0"))
                 hold = Decimal(balance.get("hold", "0"))
                 available = total - hold
-
                 if total > 0:
                     print(f"  {coin}: {total} total, {available} available")
                     if coin == "USDC":
@@ -117,18 +104,15 @@ async def show_balances(api):
             print("  No spot balances.")
     else:
         print(f"[Error] Failed to get spot balance: {spot_result.unwrap_err()}")
-
     print("\n========================\n")
 
-
-async def run_trading_bot():
-    index = 1
+async def run_nlp_bot():
+    index = 2
     address = os.getenv(f"HL_ADDRESS_{index}")
     secret_key = os.getenv(f"HL_SECRET_KEY_{index}")
     if not address or not secret_key:
         print(f"Missing environment variables HL_ADDRESS_{index} or HL_SECRET_KEY_{index}")
         return
-
     account = Account(address=address, secret_key=secret_key)
     api = await Api.create(account=account, network=TESTNET)
     print("[Bot] Connected to Hyperliquid TESTNET as account", address)
@@ -139,22 +123,16 @@ async def run_trading_bot():
         if text.lower() in ("exit", "quit"):
             print("Exiting bot.")
             break
-
-        # Price lookup
         if text.lower().startswith("price "):
             _, symbol = text.split(maxsplit=1)
             await get_market_data(api, symbol.upper())
             continue
-
-        # Portfolio and balances
         if text.lower() == "portfolio":
             await show_portfolio(api)
             continue
         if text.lower() == "balances":
             await show_balances(api)
             continue
-
-        # Help
         if text.lower() == "help":
             print("""
 • buy <qty> <sym> [at <price>]
@@ -168,7 +146,6 @@ async def run_trading_bot():
 """)
             continue
 
-        # Cancel order
         m_cancel = CommandParser.CANCEL_RE.match(text)
         if m_cancel:
             oid = m_cancel.group("oid")
@@ -179,17 +156,16 @@ async def run_trading_bot():
                 print(f"Cancel failed: {cancel_res.unwrap_err()}")
             continue
 
-        # Sell all functionality
         m_all = CommandParser.ALL_RE.match(text)
         if m_all:
             sym = m_all.group("symbol").upper()
             spot_state = (await api.info.spot_user_state()).unwrap()
-            bal = next((b for b in spot_state.get("balances", []) if b.get("coin")==sym), None)
+            bal = next((b for b in spot_state.get("balances", []) if b.get("coin") == sym), None)
             if not bal:
                 print(f"No balance info for {sym}")
                 continue
-            total = Decimal(bal.get("total","0"))
-            hold = Decimal(bal.get("hold","0"))
+            total = Decimal(bal.get("total", "0"))
+            hold = Decimal(bal.get("hold", "0"))
             qty = total - hold
             if qty <= 0:
                 print(f"Nothing to sell for {sym}")
@@ -209,7 +185,6 @@ async def run_trading_bot():
                 print(f"Sell all order placed for {sym}, qty {qty}")
             continue
 
-        # Regular buy/sell
         cmd, symbol, qty, price = CommandParser.parse(text)
         if not cmd:
             print("Unrecognized command. Try 'buy 0.1 BTC at 30000', 'sell all BTC', or 'cancel <id>'.")
@@ -227,11 +202,9 @@ async def run_trading_bot():
         except Exception as e:
             print(f"[Error] API call failed: {e}")
             continue
-
         if not res.is_ok():
             print(f"[Error] Order failed: {res.unwrap_err()}")
             continue
-
         statuses = res.unwrap()["response"]["data"]["statuses"]
         for status in statuses:
             if is_resting_status(status):
@@ -243,10 +216,8 @@ async def run_trading_bot():
             elif is_error_status(status):
                 print(f"Order error: {status['error']}")
 
-
 async def main():
-    await run_trading_bot()
-
+    await run_nlp_bot()
 
 if __name__ == "__main__":
     asyncio.run(main())
